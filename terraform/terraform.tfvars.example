@@ -1,0 +1,2 @@
+# Copy to terraform.tfvars (git-ignored) if you don't want to be prompted.
+# region = "ap-southeast-1"

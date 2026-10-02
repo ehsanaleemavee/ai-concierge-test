@@ -1,0 +1,50 @@
+# Local run of the whole stack:  docker compose up --build
+# web   -> http://localhost:8000    voice -> ws://localhost:8001/ws/echo
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: concierge
+      POSTGRES_USER: concierge
+      POSTGRES_PASSWORD: localpass
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U concierge -d concierge"]
+      interval: 3s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      retries: 20
+
+  web:
+    build: ./services/web
+    ports: ["8000:8000"]
+    environment: &env
+      DB_HOST: postgres
+      DB_NAME: concierge
+      DB_USER: concierge
+      DB_PASSWORD: localpass
+      REDIS_HOST: redis
+    depends_on: &deps
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  voice:
+    build: ./services/voice
+    ports: ["8001:8000"]
+    environment: *env
+    depends_on: *deps
+
+  worker:
+    build: ./services/worker
+    environment: *env
+    depends_on: *deps
+
+  scheduler:
+    build: ./services/scheduler
+    environment:
+      <<: *env
+      SCHEDULER_INTERVAL: "10"
+    depends_on: *deps

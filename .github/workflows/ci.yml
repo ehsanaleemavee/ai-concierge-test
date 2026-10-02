@@ -1,0 +1,32 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  apps:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [web, voice, worker, scheduler]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -r services/${{ matrix.service }}/requirements.txt
+      - run: python -m py_compile services/${{ matrix.service }}/main.py
+      - run: docker build services/${{ matrix.service }}
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform fmt -check -recursive
+        working-directory: terraform
+      - run: terraform init -backend=false
+        working-directory: terraform
+      - run: terraform validate
+        working-directory: terraform
+        env:
+          TF_VAR_region: ap-southeast-1

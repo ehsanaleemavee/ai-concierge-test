@@ -1,0 +1,75 @@
+name: deploy
+# Every push to main builds all four apps and rolls them out to ECS automatically.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write # lets the job log in to AWS via OIDC (no stored keys)
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  PREFIX: jazzaiconcierge-test
+  CLUSTER: jazzaiconcierge-test-cluster
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [web, voice, worker, scheduler]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push ${{ matrix.service }}
+        id: build
+        run: |
+          IMAGE="${{ steps.ecr.outputs.registry }}/${PREFIX}-${{ matrix.service }}"
+          docker build -t "$IMAGE:${GITHUB_SHA}" -t "$IMAGE:latest" services/${{ matrix.service }}
+          docker push "$IMAGE:${GITHUB_SHA}"
+          docker push "$IMAGE:latest"
+          echo "image=$IMAGE:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch current task definition
+        run: |
+          aws ecs describe-task-definition --task-definition "${PREFIX}-${{ matrix.service }}" \
+            --query taskDefinition > taskdef.json
+
+      - id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: taskdef.json
+          container-name: ${{ matrix.service }}
+          image: ${{ steps.build.outputs.image }}
+
+      - uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          service: ${{ env.PREFIX }}-${{ matrix.service }}
+          cluster: ${{ env.CLUSTER }}
+          wait-for-service-stability: true
+
+  verify:
+    # Proves the new version is live through CloudFront. Set repo variable CLOUDFRONT_URL to enable.
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Smoke test via CloudFront
+        env:
+          URL: ${{ vars.CLOUDFRONT_URL }}
+        run: |
+          if [ -z "$URL" ]; then echo "::notice::CLOUDFRONT_URL variable not set, skipping smoke test"; exit 0; fi
+          for p in /health /db /redis /status; do
+            curl -fsS --retry 5 --retry-delay 5 --retry-all-errors "$URL$p"; echo
+          done
