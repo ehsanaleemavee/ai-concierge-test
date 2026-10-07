@@ -2,6 +2,7 @@
 # First-time push of all four images (ECS services need them to exist before they can start).
 # Usage: ./scripts/push-images.sh ap-southeast-1
 set -euo pipefail
+cd "$(dirname "$0")/.."   # always run from the repo root, wherever the script is called from
 REGION="${1:?usage: push-images.sh <region>}"
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 REG="$ACCOUNT.dkr.ecr.$REGION.amazonaws.com"
