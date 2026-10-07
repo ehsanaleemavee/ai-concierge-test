@@ -50,7 +50,7 @@ def health():
 
 @app.get("/")
 def root():
-    return {"service": "jazzai-concierge-test", "app": "web"}
+    return {"service": "jazzai-concierge-test updated", "app": "web"}
 
 
 @app.get("/db")
